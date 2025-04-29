@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Socket.IO chat</title>
+  <style>
+      body { margin: 0; padding-bottom: 3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+      #form { 
+        background: rgba(0, 0, 0, 0.15); 
+        padding: 0.25rem; 
+        position: fixed; 
+        bottom: 0; 
+        left: 0; 
+        right: 0; 
+        display: flex; 
+        height: 3rem; 
+        box-sizing: border-box; 
+        backdrop-filter: blur(10px); 
+      }
+      #input { 
+        border: none; 
+        padding: 0 1rem; 
+        flex-grow: 1; 
+        border-radius: 2rem; 
+        margin: 0.25rem; 
+      }
+      #input:focus { outline: none; }
+      #form > button { 
+        background: #333; 
+        border: none; 
+        padding: 0 1rem; 
+        margin: 0.25rem; 
+        border-radius: 3px; 
+        outline: none; 
+        color: #fff; 
+      }
+      #clearMessagesBtn {
+        background: #ffc107;
+        color: #333;
+        border: none;
+        padding: 0 1rem;
+        margin: 0.25rem;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      #clearMessagesBtn:disabled {
+        background: #aaa;
+        cursor: not-allowed;
+      }
+
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages > li { padding: 0.5rem 1rem; }
+      #messages > li:nth-child(odd) { background: #efefef; }
+      #messages > li.message-deleted {
+        background: #fff3cd !important;
+        color: #856404;
+        font-style: italic;
+        text-align: center;
+        padding: 0.5rem;
+        border-left: 4px solid #ffc107;
+      }
+
+      #disconnectBtn {
+        position: fixed;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: #d33;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+
+      #reconnectBtn {
+        position: fixed;
+        top: 3.5rem;
+        right: 0.5rem;
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        cursor: pointer;
+        display: none;
+      }
+
+      #autoMessageBtn {
+        position: fixed;
+        top: 0.5rem;
+        left: 0.5rem;
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+
+      #disconnectBtn:disabled, #reconnectBtn:disabled, #autoMessageBtn:disabled {
+        background: #aaa;
+        cursor: not-allowed;
+      }
+
+      
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.4);
+      }
+      .modal-content {
+        background-color: #fefefe;
+        margin: 15% auto;
+        padding: 20px;
+        border: 1px solid #888;
+        width: 80%;
+        max-width: 400px;
+        border-radius: 5px;
+        text-align: center;
+      }
+      .modal-buttons {
+        margin-top: 20px;
+      }
+      .modal-buttons button {
+        margin: 0 10px;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .modal-buttons button:nth-child(1) {
+        background-color: #4CAF50;
+        color: white;
+      }
+      .modal-buttons button:nth-child(2) {
+        background-color: #2196F3;
+        color: white;
+      }
+      .modal-buttons button:nth-child(3) {
+        background-color: #f44336;
+        color: white;
+      }
+      .username {
+        font-weight: bold;
+      }
+      .username.pedro {
+        color: #4CAF50;
+      }
+      .username.carlos {
+        color: #2196F3;
+      }
+      .username.profesor {
+        color: #f44336;
+      }
+  </style>
+</head>
+<body>
+  <div id="userModal" class="modal">
+    <div class="modal-content">
+      <h2>¿Quién eres?</h2>
+      <p>Selecciona tu identidad para el chat:</p>
+      <div class="modal-buttons">
+        <button id="pedroBtn">Pedro</button>
+        <button id="carlosBtn">Carlos</button>
+        <button id="profesorBtn">Profesor</button>
+      </div>
+    </div>
+  </div>
+
+  <ul id="messages"></ul>
+
+  <form id="form" action="">
+    <input id="input" autocomplete="off" disabled />
+    <button type="submit" disabled>Send</button>
+    <button type="button" id="clearMessagesBtn" disabled>🗑️</button>
+  </form>
+
+  <button id="autoMessageBtn" disabled>Mensaje rápido</button>
+  <button id="disconnectBtn" disabled>Desconectar</button>
+  <button id="reconnectBtn">Reconectar</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let counter = 0;
+    let socket;
+    let currentUser = null;
+
+    // Mostrar modal al cargar la página
+    const modal = document.getElementById('userModal');
+    modal.style.display = 'block';
+
+    // Configurar botones del modal
+    document.getElementById('pedroBtn').addEventListener('click', () => {
+      currentUser = { name: 'Pedro', type: 'pedro' };
+      modal.style.display = 'none';
+      initializeChat();
+    });
+
+    document.getElementById('carlosBtn').addEventListener('click', () => {
+      currentUser = { name: 'Carlos', type: 'carlos' };
+      modal.style.display = 'none';
+      initializeChat();
+    });
+
+    document.getElementById('profesorBtn').addEventListener('click', () => {
+      currentUser = { name: 'Profesor', type: 'profesor' };
+      modal.style.display = 'none';
+      initializeChat();
+    });
+
+    function initializeChat() {
+      // Habilitar elementos del chat
+      input.disabled = false;
+      document.querySelector('#form button[type="submit"]').disabled = false;
+      autoMessageBtn.disabled = false;
+      clearMessagesBtn.disabled = false;
+      disconnectBtn.disabled = false;
+
+      // Mostrar mensaje de bienvenida
+      const welcomeItem = document.createElement('li');
+      welcomeItem.innerHTML = `Has entrado al chat como <span class="username ${currentUser.type}">${currentUser.name}</span>`;
+      messages.appendChild(welcomeItem);
+      window.scrollTo(0, document.body.scrollHeight);
+
+      // Conectar al chat
+      connectToChat();
+    }
+
+    function connectToChat() {
+      socket = io({
+        auth: {
+          serverOffset: 0
+        },
+        ackTimeout: 10000,
+        retries: 3,
+      });
+
+      socket.on('chat message', (msg, serverOffset) => {
+        const item = document.createElement('li');
+        item.innerHTML = msg; // El mensaje ya viene con formato HTML desde el cliente
+        messages.appendChild(item);
+        window.scrollTo(0, document.body.scrollHeight);
+        socket.auth.serverOffset = serverOffset;
+      });
+
+      socket.on('connect', () => {
+        input.disabled = false;
+        autoMessageBtn.disabled = false;
+        clearMessagesBtn.disabled = false;
+        disconnectBtn.disabled = false;
+        reconnectBtn.style.display = 'none';
+      });
+
+      socket.on('disconnect', () => {
+        input.disabled = true;
+        autoMessageBtn.disabled = true;
+        clearMessagesBtn.disabled = true;
+        disconnectBtn.disabled = true;
+        reconnectBtn.style.display = 'block';
+
+        const item = document.createElement('li');
+        item.textContent = '🚫 Desconectado del chat';
+        item.style.color = 'red';
+        messages.appendChild(item);
+      });
+    }
+
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const messages = document.getElementById('messages');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const autoMessageBtn = document.getElementById('autoMessageBtn');
+    const reconnectBtn = document.getElementById('reconnectBtn');
+    const clearMessagesBtn = document.getElementById('clearMessagesBtn');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (input.value && !input.disabled && currentUser) {
+        const clientOffset = `${socket.id}-${counter++}`;
+        const formattedMessage = `<span class="username ${currentUser.type}">${currentUser.name}:</span> ${input.value}`;
+        socket.emit('chat message', formattedMessage, clientOffset);
+        input.value = '';
+      }
+    });
+
+    disconnectBtn.addEventListener('click', () => {
+      socket.disconnect();
+    });
+
+    reconnectBtn.addEventListener('click', () => {
+      connectToChat();
+    });
+
+    autoMessageBtn.addEventListener('click', () => {
+      if (!input.disabled && currentUser) {
+        const messages = [
+          "¡Hola a todos!",
+          "¿Cómo están?",
+          "Estoy usando el botón de mensaje rápido",
+          "¡Este chat es genial!",
+          "Adiós 👋"
+        ];
+
+        const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+        const clientOffset = `${socket.id}-${counter++}`;
+        const formattedMessage = `<span class="username ${currentUser.type}">${currentUser.name}:</span> ${randomMessage}`;
+
+        socket.emit('chat message', formattedMessage, clientOffset);
+      }
+    });
+
+    clearMessagesBtn.addEventListener('click', async () => {
+      // Borrar todos los mensajes del chat localmente
+      messages.innerHTML = '';
+
+      try {
+        // Enviar solicitud al servidor para borrar mensajes
+        await fetch('/clear-messages', { method: 'POST' });
+
+        // Añadir mensaje indicando que se borraron los mensajes
+        const item = document.createElement('li');
+        item.textContent = '🗑️ Todos los mensajes han sido borrados';
+        item.className = 'message-deleted';
+        messages.appendChild(item);
+
+        // Notificar al servidor que los mensajes fueron borrados
+        socket.emit('clear messages');
+      } catch (error) {
+        const item = document.createElement('li');
+        item.textContent = '⚠️ Error al borrar mensajes';
+        item.style.color = 'red';
+        messages.appendChild(item);
+      }
+    });
+  </script>
+</body>
+</html>
